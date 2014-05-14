@@ -17,7 +17,8 @@ using Microsoft.Speech.AudioFormat;
 using Microsoft.Speech.Recognition;
 using System.IO;
 
-
+//鼠标操作
+using System.Runtime.InteropServices;
 
 namespace KinectCtrlPPT
 {
@@ -26,8 +27,8 @@ namespace KinectCtrlPPT
     /// </summary>
     public partial class MainWindow : Window
     {
-        
-       
+
+
         private KinectSensor kinect;
 
         bool isWindowsClosing = false; //窗口是否正在关闭中
@@ -104,9 +105,9 @@ namespace KinectCtrlPPT
                 return;
             }
 
-            if (s.TrackingState != SkeletonTrackingState.Tracked)            
+            if (s.TrackingState != SkeletonTrackingState.Tracked)
             {
-                
+
                 return;
             }
 
@@ -118,10 +119,10 @@ namespace KinectCtrlPPT
             presentPowerPoint(s);
         }
 
-        
-     
-     // private const double JumpDiffThreadhold = 0.05; //跳跃的落差阀值，单位米
-     // private double headPreviousPosition = 2.0; //初始值，一般人不会有2米身高 跳跃动作留空，未映射
+
+
+        // private const double JumpDiffThreadhold = 0.05; //跳跃的落差阀值，单位米
+        // private double headPreviousPosition = 2.0; //初始值，一般人不会有2米身高 跳跃动作留空，未映射
 
 
         private bool isNextGestureActive = false;
@@ -153,7 +154,7 @@ namespace KinectCtrlPPT
                 {
                     KeyboardToolkit.Keyboard.Type(Key.Right);
                     isNextGestureActive = true;
-                    
+
                     //System.Windows.Forms.SendKeys.SendWait("{Right}");
                 }
             }
@@ -192,7 +193,7 @@ namespace KinectCtrlPPT
             {
                 isBlackScreenActive = false;
             }
-                
+
         }
 
 
@@ -251,7 +252,7 @@ namespace KinectCtrlPPT
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             isWindowsClosing = true;
-            stopKinect(kinect); 
+            stopKinect(kinect);
         }
 
         //=================================================================================
@@ -295,6 +296,9 @@ namespace KinectCtrlPPT
             voicecommands.Add("okay");
             voicecommands.Add("thank you");
 
+            //荧光标注前的准备工作
+            voicecommands.Add("mark");
+
             var grambuilder = new GrammarBuilder { Culture = recoinfo.Culture };
 
             // 创建语法对象                                
@@ -317,7 +321,7 @@ namespace KinectCtrlPPT
                 s, new SpeechAudioFormatInfo(EncodingFormat.Pcm, 16000, 16, 1, 32000, 2, null));
 
             // 异步开启语音识别引擎，可识别多次
-            speechrecoengine.RecognizeAsync(RecognizeMode.Multiple);            
+            speechrecoengine.RecognizeAsync(RecognizeMode.Multiple);
         }
 
         void speechrecoengine_SpeechRecognitionRejected(object sender, SpeechRecognitionRejectedEventArgs e)
@@ -338,19 +342,91 @@ namespace KinectCtrlPPT
             //语音识别信心度超过70%
             if (e.Result.Confidence >= 0.7)
             {
-                string city = e.Result.Text.ToLower();
-                if (city == "okay")
+                string voicecommand = e.Result.Text.ToLower();
+                if (voicecommand == "okay")
                 {
                     KeyboardToolkit.Keyboard.Type(Key.F5);
                     labelstart.Visibility = System.Windows.Visibility.Hidden;
                 }
-                else if (city == "thank you")
+                else if (voicecommand == "thank you")
                 {
                     KeyboardToolkit.Keyboard.Type(Key.Escape);
                     labelesc.Visibility = System.Windows.Visibility.Hidden;
                 }
+                else if (voicecommand == "mark")
+                {
+                    //鼠标右击
+                    try
+                    {
+                        RightClick();
+                    }
+                    catch
+                    {
+                        MessageBox.Show("标注准备失败！");
+                    }
+                    //end
+                    // */
+                    //KeyboardToolkit.Keyboard.Type(Key.O);
+                }
             }
         }
 
+        // 鼠标操作  也可引用Kinect.Toolbox.Cursor
+
+        [DllImport("User32")]
+        public extern static void mouse_event(int dwFlags, int dx, int dy, int dwData, IntPtr dwExtraInfo);
+
+        [DllImport("User32")]
+        public extern static void SetCursorPos(int x, int y);
+
+        [DllImport("User32")]
+        public extern static bool GetCursorPos(out POINT pt);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct POINT
+        {
+            public int X;
+            public int Y;
+        }
+
+        public enum MouseEventFlags
+        {
+            Move = 0x0001,
+            LeftDown = 0x0002,
+            LeftUp = 0x0004,
+            RightDown = 0x0008,
+            RightUp = 0x0010,
+            MiddleDown = 0x0020,
+            MiddleUp = 0x0040,
+            Wheel = 0x0800,
+            Absolute = 0x8000
+        }
+
+        POINT CursorPosition = new POINT();
+
+        private void RightClick()
+        {
+            POINT p = new POINT();
+
+            GetCursorPos(out p);
+            CursorPosition = p;
+            SetCursorPos(CursorPosition.X, CursorPosition.Y);
+
+            try
+            {
+                mouse_event((int)(MouseEventFlags.RightDown | MouseEventFlags.Absolute), 0, 0, 0, IntPtr.Zero);
+                mouse_event((int)(MouseEventFlags.RightUp | MouseEventFlags.Absolute), 0, 0, 0, IntPtr.Zero);
+            }
+            catch
+            {
+                MessageBox.Show("右击动作发生异常");
+            }
+            finally
+            {
+                //SetCursorPos(p.X, p.Y);
+            }
+        }
+
+        // */
     }
 }
