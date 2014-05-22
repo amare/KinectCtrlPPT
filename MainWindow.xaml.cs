@@ -231,7 +231,8 @@ namespace KinectCtrlPPT
                     mouse_event((int)(MouseEventFlags.LeftDown | MouseEventFlags.Absolute), 0, 0, 0, IntPtr.Zero);
                     //MessageBox.Show("press down the mouse!");
                     isForwardGestureActive = true;
-                }
+                    
+                }                
             }
             else
             {
@@ -255,10 +256,8 @@ namespace KinectCtrlPPT
 
             float posX = hand.ScaleTo(ScreenWidth, ScreenHeight, 0.2f, 0.2f).Position.X;
             float posY = hand.ScaleTo(ScreenWidth, ScreenHeight, 0.2f, 0.2f).Position.Y;
-
+            //bool is_mark = false;
             SetCursorPos((int)posX, (int)posY);
-
-
 
         }
 
@@ -429,7 +428,7 @@ namespace KinectCtrlPPT
                     {
                         RightClick();
                         KeyboardToolkit.Keyboard.Type(Key.O);
-                        KeyboardToolkit.Keyboard.Type(Key.H);
+                        KeyboardToolkit.Keyboard.Type(Key.B);
                     }
                     catch
                     {
