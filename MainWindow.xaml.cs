@@ -19,6 +19,15 @@ using System.IO;
 
 //鼠标操作
 using System.Runtime.InteropServices;
+using Coding4Fun.Kinect;
+using Coding4Fun.Kinect.Wpf;
+/*
+using Microsoft.Win32;
+using OFFICECORE = Microsoft.Office.Core;
+using POWERPOINT = Microsoft.Office.Interop.PowerPoint;
+using System.Collections;
+//*/
+
 
 namespace KinectCtrlPPT
 {
@@ -107,7 +116,6 @@ namespace KinectCtrlPPT
 
             if (s.TrackingState != SkeletonTrackingState.Tracked)
             {
-
                 return;
             }
 
@@ -128,8 +136,13 @@ namespace KinectCtrlPPT
         private bool isNextGestureActive = false;
         private bool isLastGestureActive = false;
         private bool isBlackScreenActive = false;
-        private const double ArmStretchedThreadhold4PPT = 0.4; //演示PPT时，手臂水平伸展的阀值，单位米
-        private const double ArmRaisedThreshhold = 0.2;        //演示PPT时，手臂垂直举起的阀值，单位米
+
+        private bool isForwardGestureActive = false;
+
+        private const double ArmStretchedThreshold = 0.4; //演示PPT时，手臂水平伸展的阈值，单位米
+        private const double ArmRaisedThreshold = 0.2;    //演示PPT时，手臂垂直举起的阈值，单位米
+
+        private const double HandFowardThreshold = -0.4;   //演示PPT时，手掌前推的阈值，单位米
 
         private void presentPowerPoint(Skeleton s)
         {
@@ -137,14 +150,28 @@ namespace KinectCtrlPPT
             SkeletonPoint leftshoulder = s.Joints[JointType.ShoulderLeft].Position;
             SkeletonPoint rightshoulder = s.Joints[JointType.ShoulderRight].Position;
 
+            SkeletonPoint rightWrist = s.Joints[JointType.WristRight].Position;
+
             SkeletonPoint leftHand = s.Joints[JointType.HandLeft].Position;
             SkeletonPoint rightHand = s.Joints[JointType.HandRight].Position;
 
-            bool isRightHandRaised = (rightHand.Y - rightshoulder.Y) > ArmRaisedThreshhold;
-            bool isLeftHandRaised = (leftHand.Y - leftshoulder.Y) > ArmRaisedThreshhold;
+            bool isRightHandRaised = (rightHand.Y - rightshoulder.Y) > ArmRaisedThreshold;
+            bool isLeftHandRaised = (leftHand.Y - leftshoulder.Y) > ArmRaisedThreshold;
 
-            bool isRightHandStretched = (rightHand.X - rightshoulder.X) > ArmStretchedThreadhold4PPT;
-            bool isLeftHandStretched = (leftshoulder.X - leftHand.X) > ArmStretchedThreadhold4PPT;
+            bool isRightHandStretched = (rightHand.X - rightshoulder.X) > ArmStretchedThreshold;
+            bool isLeftHandStretched = (leftshoulder.X - leftHand.X) > ArmStretchedThreshold;
+
+
+            /*//        测试手掌前推阈值
+                        float test_z = rightWrist.Z - rightshoulder.Z;
+                        if (test_z < -0.4)
+                        {
+                            MessageBox.Show(test_z.ToString());
+                            return;            
+                        }            
+            //*/
+            bool isRightHandForward = (rightWrist.Z - rightshoulder.Z) < HandFowardThreshold;
+
 
             //使用状态变量，避免多次重复发送键盘事件
             //右手水平伸展开
@@ -193,6 +220,45 @@ namespace KinectCtrlPPT
             {
                 isBlackScreenActive = false;
             }
+
+            //进行标注
+
+            // 右手前推表示单击按下，后撤表示单击释放
+            if (isRightHandForward)
+            {
+                if (!isForwardGestureActive)
+                {
+                    mouse_event((int)(MouseEventFlags.LeftDown | MouseEventFlags.Absolute), 0, 0, 0, IntPtr.Zero);
+                    //MessageBox.Show("press down the mouse!");
+                    isForwardGestureActive = true;
+                }
+            }
+            else
+            {
+                mouse_event((int)(MouseEventFlags.LeftUp | MouseEventFlags.Absolute), 0, 0, 0, IntPtr.Zero);
+                //MessageBox.Show("press up the mouse!");
+                isForwardGestureActive = false;
+            }
+
+            // 移动鼠标位置
+            /*         var hand = (leftHand.Y > rightHand.Y)
+                                       ? s.Joints[JointType.HandLeft]
+                                       : s.Joints[JointType.HandRight];
+           //*/
+            var hand = s.Joints[JointType.HandLeft];
+            if (hand.TrackingState != JointTrackingState.Tracked)
+                return;
+
+            //获取当前屏幕的宽高
+            int ScreenWidth = (int)SystemParameters.PrimaryScreenWidth;
+            int ScreenHeight = (int)SystemParameters.PrimaryScreenHeight;
+
+            float posX = hand.ScaleTo(ScreenWidth, ScreenHeight, 0.2f, 0.2f).Position.X;
+            float posY = hand.ScaleTo(ScreenWidth, ScreenHeight, 0.2f, 0.2f).Position.Y;
+
+            SetCursorPos((int)posX, (int)posY);
+
+
 
         }
 
@@ -298,6 +364,9 @@ namespace KinectCtrlPPT
 
             //荧光标注前的准备工作
             voicecommands.Add("mark");
+            voicecommands.Add("stop mark");
+            voicecommands.Add("discard");
+            voicecommands.Add("keep");
 
             var grambuilder = new GrammarBuilder { Culture = recoinfo.Culture };
 
@@ -359,6 +428,8 @@ namespace KinectCtrlPPT
                     try
                     {
                         RightClick();
+                        KeyboardToolkit.Keyboard.Type(Key.O);
+                        KeyboardToolkit.Keyboard.Type(Key.H);
                     }
                     catch
                     {
@@ -367,6 +438,27 @@ namespace KinectCtrlPPT
                     //end
                     // */
                     //KeyboardToolkit.Keyboard.Type(Key.O);
+                }
+                else if (voicecommand == "stop mark")
+                {
+                    try
+                    {
+                        RightClick();
+                        KeyboardToolkit.Keyboard.Type(Key.O);
+                        KeyboardToolkit.Keyboard.Type(Key.A);
+                    }
+                    catch
+                    {
+                        MessageBox.Show("停止标注失败！");
+                    }
+                }
+                else if (voicecommand == "discard")
+                {
+                    KeyboardToolkit.Keyboard.Type(Key.D);
+                }
+                else if (voicecommand == "keep")
+                {
+                    KeyboardToolkit.Keyboard.Type(Key.K);
                 }
             }
         }
@@ -423,10 +515,156 @@ namespace KinectCtrlPPT
             }
             finally
             {
-                //SetCursorPos(p.X, p.Y);
+                SetCursorPos(p.X, p.Y);
             }
         }
 
-        // */
+        //====================打开PPT文件===========================
+
+
+        private void MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            /*
+            //创建一个打开文件式的对话框  
+            OpenFileDialog ofd = new OpenFileDialog();
+            //设置这个对话框的起始打开路径  
+            ofd.InitialDirectory = @"C:\Users";
+            //设置打开的文件的类型，注意过滤器的语法  
+            ofd.Filter = "PPT文件（.ppt）|*.ppt";
+            String filePath = ofd.FileName;
+            //调用ShowDialog()方法显示该对话框，该方法的返回值代表用户是否点击了确定按钮  
+            if (ofd.ShowDialog() == true)
+            {
+                PPTOpen(filePath);
+
+            }
+            
+            else
+            {
+                MessageBox.Show("没有选择PPT");
+            }
+            //*/
+        }
+
+        private void MenuItem_Click_1(object sender, RoutedEventArgs e)
+        {
+            //PPTClose();
+        }
+/*
+        #region=========基本的参数信息=======
+        POWERPOINT.Application objApp = null;
+        POWERPOINT.Presentation objPresSet = null;
+        POWERPOINT.SlideShowWindows objSSWs;
+        POWERPOINT.SlideShowTransition objSST;
+        POWERPOINT.SlideShowSettings objSSS;
+        POWERPOINT.SlideRange objSldRng;
+        bool bAssistantOn;
+        double pixperPoint = 0;
+        double offsetx = 0;
+        double offsety = 0;
+        #endregion
+        #region===========操作方法==============
+        /// <summary>
+        /// 打开PPT文档并播放显示。
+        /// </summary>
+        /// <param name="filePath">PPT文件路径</param>
+        public void PPTOpen(string filePath)
+        {
+            //防止连续打开多个PPT程序.
+            if (this.objApp != null) { return; }
+            try
+            {
+                objApp = new POWERPOINT.Application();
+                //以非只读方式打开,方便操作结束后保存.
+                objPresSet = objApp.Presentations.Open(filePath, OFFICECORE.MsoTriState.msoFalse, OFFICECORE.MsoTriState.msoFalse, OFFICECORE.MsoTriState.msoFalse);
+                //Prevent Office Assistant from displaying alert messages:
+                bAssistantOn = objApp.Assistant.On;
+                objApp.Assistant.On = false;
+                objSSS = this.objPresSet.SlideShowSettings;
+                objSSS.Run();
+            }
+            catch
+            {
+                this.objApp.Quit();
+            }
+        }
+        /// <summary>
+        /// 自动播放PPT文档.
+        /// </summary>
+        /// <param name="filePath">PPTy文件路径.</param>
+        /// <param name="playTime">翻页的时间间隔.【以秒为单位】</param>
+        public void PPTAuto(string filePath, int playTime)
+        {
+            //防止连续打开多个PPT程序.
+            if (this.objApp != null) { return; }
+            objApp = new POWERPOINT.Application();
+            objPresSet = objApp.Presentations.Open(filePath, OFFICECORE.MsoTriState.msoCTrue, OFFICECORE.MsoTriState.msoFalse, OFFICECORE.MsoTriState.msoFalse);
+            // 自动播放的代码（开始）
+            int Slides = objPresSet.Slides.Count;
+            int[] SlideIdx = new int[Slides];
+            for (int i = 0; i < Slides; i++) { SlideIdx[i] = i + 1; };
+            objSldRng = objPresSet.Slides.Range(SlideIdx);
+            objSST = objSldRng.SlideShowTransition;
+            //设置翻页的时间.
+            objSST.AdvanceOnTime = OFFICECORE.MsoTriState.msoCTrue;
+            objSST.AdvanceTime = playTime;
+            //翻页时的特效!
+            objSST.EntryEffect = POWERPOINT.PpEntryEffect.ppEffectCircleOut;
+            //Prevent Office Assistant from displaying alert messages:
+            bAssistantOn = objApp.Assistant.On;
+            objApp.Assistant.On = false;
+            //Run the Slide show from slides 1 thru 3.
+            objSSS = objPresSet.SlideShowSettings;
+            objSSS.StartingSlide = 1;
+            objSSS.EndingSlide = Slides;
+            objSSS.Run();
+            //Wait for the slide show to end.
+            objSSWs = objApp.SlideShowWindows;
+            while (objSSWs.Count >= 1) System.Threading.Thread.Sleep(playTime * 100);
+            this.objPresSet.Close();
+            this.objApp.Quit();
+        }
+        /// <summary>
+        /// PPT下一页。
+        /// </summary>
+        public void NextSlide()
+        {
+            if (this.objApp != null)
+                this.objPresSet.SlideShowWindow.View.Next();
+        }
+        /// <summary>
+        /// PPT上一页。
+        /// </summary>
+        public void PreviousSlide()
+        {
+            if (this.objApp != null)
+                this.objPresSet.SlideShowWindow.View.Previous();
+        }
+        
+        /// <summary>
+        /// 关闭PPT文档。
+        /// </summary>
+        public void PPTClose()
+        {
+            //装备PPT程序。
+            if (this.objPresSet != null)
+            {
+                //判断是否退出程序,可以不使用。
+                //objSSWs = objApp.SlideShowWindows;
+                //if (objSSWs.Count >= 1)
+                //{
+                    if (MessageBox.Show("是否保存修改的笔迹!", "提示", MessageBoxButton.OKCancel) == MessageBoxResult.OK)
+                        this.objPresSet.Save();
+                //}
+                //this.objPresSet.Close();
+            }
+            if (this.objApp != null)
+                this.objApp.Quit();
+            GC.Collect();
+        }
+        #endregion
+
+ //*/       
+
     }
 }
