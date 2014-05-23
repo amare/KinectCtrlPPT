@@ -38,7 +38,8 @@ namespace KinectCtrlPPT
     {
 
 
-        private KinectSensor kinect;
+        private KinectSensor _kinect;
+        Choices voicecommands = new Choices();
 
         bool isWindowsClosing = false; //窗口是否正在关闭中
         const int MaxSkeletonTrackingCount = 6; //最多同时可以跟踪的用户数
@@ -46,21 +47,21 @@ namespace KinectCtrlPPT
 
 
 
-        private void startKinect()
+        private void InitKinect()
         {
             if (KinectSensor.KinectSensors.Count > 0)
             {
                 //选择第一个Kinect设备
-                kinect = KinectSensor.KinectSensors[0];
+                _kinect = KinectSensor.KinectSensors[0];
 
-                if (kinect == null)
+                if (_kinect == null)
                 {
                     return;
                 }
 
                 //启用深度摄像头和彩色摄像头，为了获得更好的映射效果，彩色摄像头的分辨率恰好是深度摄像头分辨率的2倍
-                kinect.DepthStream.Enable(DepthImageFormat.Resolution640x480Fps30);     //获取深度信息流
-                kinect.ColorStream.Enable(ColorImageFormat.RgbResolution1280x960Fps12);  //获取彩色图像流
+                _kinect.DepthStream.Enable(DepthImageFormat.Resolution640x480Fps30);     //获取深度信息流
+                _kinect.ColorStream.Enable(ColorImageFormat.RgbResolution1280x960Fps12);  //获取彩色图像流
 
                 var parameters = new TransformSmoothParameters
                 {
@@ -70,17 +71,17 @@ namespace KinectCtrlPPT
                     JitterRadius = 0.05f,
                     MaxDeviationRadius = 0.04f
                 };
-                kinect.SkeletonStream.Enable(parameters);                               //获取骨骼跟踪数据
+                _kinect.SkeletonStream.Enable(parameters);                               //获取骨骼跟踪数据
 
-                kinect.SkeletonFrameReady += new EventHandler<SkeletonFrameReadyEventArgs>(kinect_SkeletonFrameReady);//预定事件
+                _kinect.SkeletonFrameReady += new EventHandler<SkeletonFrameReadyEventArgs>(kinect_SkeletonFrameReady);//预定事件
 
                 try
                 {
                     //显示彩色图像摄像头
-                    kinectColorViewer1.Kinect = kinect;
+                    kinectColorViewer1.Kinect = _kinect;
 
                     //启动
-                    kinect.Start();
+                    _kinect.Start();
 
                     //语音命令播放PPT
                     PPTPlayViaVoice();
@@ -311,13 +312,95 @@ namespace KinectCtrlPPT
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
             labelIsSkeletonTracked.Visibility = System.Windows.Visibility.Hidden;
-            startKinect();
+
+            try
+            {
+                //monitoring for Kinect's status
+                // 监听Kinect的状态
+                KinectSensor.KinectSensors.StatusChanged += new EventHandler<StatusChangedEventArgs>(KinectSensors_StatusChanged);
+
+                //loop through all the Kinects attached to this PC, and start the first that is connected without an error.
+                // 寻找所有连接在电脑上的Kinect设备，并启动第一个连接正常的设备
+                foreach (KinectSensor kinect in KinectSensor.KinectSensors)
+                {
+                    if (kinect.Status == KinectStatus.Connected)
+                    {
+                        this._kinect = kinect;
+                        break;
+                    }
+                }
+
+                if (KinectSensor.KinectSensors.Count == 0)
+                    MessageBox.Show("No Kinect found");
+                else
+                    this.InitKinect();
+
+                //设置应用程序手型光标
+                Mouse.OverrideCursor = Cursors.Hand;
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+        }
+
+        // Kinect 状态改变触发事件
+        private void KinectSensors_StatusChanged(object sender, StatusChangedEventArgs e)
+        {
+            switch (e.Status)
+            {
+                case KinectStatus.Connected:
+                    if (_kinect == null)
+                    {
+                        _kinect = e.Sensor;
+                        this.InitKinect();
+                    }
+                    break;
+                case KinectStatus.Disconnected:
+                    if (_kinect == e.Sensor)
+                    {
+                        releaseResources();
+                        MessageBox.Show("Kinect disconnected");
+                    }
+                    break;
+                case KinectStatus.NotReady:
+                    break;
+                case KinectStatus.NotPowered:
+                    if (_kinect == e.Sensor)
+                    {
+                        releaseResources();
+                        MessageBox.Show("Kinect powered off");
+                    }
+                    break;
+                default:
+                    MessageBox.Show("Unhandled Status: " + e.Status);
+                    break;
+            }
+        }
+
+        private void releaseResources()
+        {
+
+            if (this.voicecommands != null)
+            {
+                this.speechrecoengine.SpeechRecognized -= speechrecoengine_SpeechRecognized;
+                this._kinect.AudioSource.Stop();
+                this.voicecommands = null;
+            }
+
+            if (_kinect != null)
+            {
+                _kinect.SkeletonFrameReady -= this.kinect_SkeletonFrameReady;
+                _kinect.Stop();
+                _kinect = null;
+            }
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             isWindowsClosing = true;
-            stopKinect(kinect);
+            stopKinect(_kinect);
         }
 
         //=================================================================================
@@ -339,10 +422,10 @@ namespace KinectCtrlPPT
         private void PPTPlayViaVoice()
         {
             // 等待4秒钟时间，让Kinect传感器初始化启动完成
-            System.Threading.Thread.Sleep(4000);
+            System.Threading.Thread.Sleep(1000);
 
             // 获取Kinect音频对象
-            KinectAudioSource audiosource = kinect.AudioSource;
+            KinectAudioSource audiosource = _kinect.AudioSource;
             audiosource.EchoCancellationMode = EchoCancellationMode.None; // 本示例中关闭“回声抑制模式”
             audiosource.AutomaticGainControlEnabled = false; // 启用语音命令识别需要关闭“自动增益”
 
@@ -357,7 +440,7 @@ namespace KinectCtrlPPT
             speechrecoengine = new SpeechRecognitionEngine(recoinfo.Id);
 
             // 添加语音命令 ok-开始播放 / thanks-停止播放
-            var voicecommands = new Choices();
+            
             voicecommands.Add("okay");
             voicecommands.Add("thank you");
 
@@ -463,7 +546,7 @@ namespace KinectCtrlPPT
         }
 
         // 鼠标操作  也可引用Kinect.Toolbox.Cursor
-
+        #region
         [DllImport("User32")]
         public extern static void mouse_event(int dwFlags, int dx, int dy, int dwData, IntPtr dwExtraInfo);
 
@@ -492,7 +575,7 @@ namespace KinectCtrlPPT
             Wheel = 0x0800,
             Absolute = 0x8000
         }
-
+        #endregion
         POINT CursorPosition = new POINT();
 
         private void RightClick()
